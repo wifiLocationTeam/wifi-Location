@@ -1,67 +1,85 @@
 package com.example.testen;
 
+import androidx.annotation.MainThread;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
+import android.animation.Animator;
 import android.content.pm.PackageManager;
 import android.net.wifi.ScanResult;
-import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Message;
-import android.provider.Settings;
+import android.os.Looper;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_CODE = 1;
     private TextView textView,textView1;
+    private EditText editX,editY;
+    private int x,y;
+    private Map<String,APInfo> APs;
+    private List<APInfo> allAP;
+    private List<APInfo> APList;
+    private static URL url;
+    private static URLConnection urlCon;
+    private Thread thread;
+
+    private void init(){
+        x = -1;
+        y = -1;
+        APList = new ArrayList<APInfo>();
+        APs = new HashMap<String,APInfo>();
+        allAP = new ArrayList<>();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Button button = findViewById(R.id.button);
+        Button scanButton = findViewById(R.id.scanButton);
+        Button recordButton = findViewById(R.id.recordButton);
+        Button clearButton = findViewById(R.id.clearButton);
+        Button sendButton = findViewById(R.id.sendButton);
         textView = findViewById(R.id.textView);
         textView1 = findViewById(R.id.textView4);
+        editX = findViewById(R.id.editTextX);
+        editY = findViewById(R.id.editTextY);
         textView.setMovementMethod(ScrollingMovementMethod.getInstance());
-        checkPermission();
-//        ScanWifiInfo();
+        init();
 
-        button.setOnClickListener(new View.OnClickListener() {
+        checkPermission();
+
+        scanButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
                 textView.setText("");
+                APList.clear();
                 Thread t = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        try{Thread.sleep(500);}catch(InterruptedException e){e.printStackTrace();}
+                        try{
+                            Thread.sleep(500);
+                        }catch(InterruptedException e){e.printStackTrace();}
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
@@ -72,24 +90,103 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
                 t.start();
-//                Intent intent=new Intent();
-//                intent.setClass(MainActivity.this,RegisterActivity.class);
-//                startActivity(intent);
-//                System.err.println("跳转成果");
-
             }
         });
-//        new Thread(new Runnable(){
-//            @Override
-//            public void run() {
-//                try {
-//                    textView.append(readParse("http://192.168.129.16:8080/register/darliroon/Hello23"));
-//                } catch (Exception e) {
-//                    e.printStackTrace();
-//                    textView.append("cannot connect");
-//                }
-//            }
-//        }).start();
+
+        recordButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                APList.clear();
+                for (APInfo value : APs.values()) {
+                    allAP.add(value);
+                }
+                allAP.sort(new Comparator<APInfo>() {
+                    @Override
+                    public int compare(APInfo ap1, APInfo ap2) {
+                        Integer ct1 = ap1.getCount();
+                        Integer ct2 = ap2.getCount();
+                        return ct2.compareTo(ct1);
+                    }
+                });
+                StringBuilder sendBuilder= new StringBuilder();
+                sendBuilder.append("当前坐标: "+editX.getText()+","+editY.getText()+"\n");
+                for(int i = 0; i < 5; i++){
+                    APList.add(allAP.get(i));
+                    sendBuilder.append("\n设备名："+APList.get(i).getName()
+                            +"\n设备位置："+APList.get(i).getBSSID()
+                            +"\n信号强度："+APList.get(i).getLevel()/APList.get(i).getCount()+"\n");
+                }
+                textView.setText(sendBuilder);
+            }
+        });
+
+        clearButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                textView.setText("");
+                textView1.setText("");
+                APList.clear();
+                allAP.clear();
+                APs.clear();
+            }
+        });
+
+        sendButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                APList.sort(new Comparator<APInfo>() {
+                    @Override
+                    public int compare(APInfo ap1, APInfo ap2) {
+                        String name1 = ap1.getBSSID();
+                        String name2 = ap2.getBSSID();
+                        return name2.compareTo(name1);
+                    }
+                });
+                new Thread(new Runnable(){
+                    @Override
+                    public void run() {
+                        try {
+                            if(APList.size() < 5 || editX.getText() == null|| editY.getText() == null){
+                                Looper.prepare();
+                                Toast.makeText(MainActivity.this, x+","+y+"缺少数据",Toast.LENGTH_SHORT).show();
+                                Looper.loop();
+                            }else{
+                                String res = connectHttp("http://192.168.129.16:8080/position/createNewPS"+"/"+editX.getText()+"/"+editY.getText()+"/"+0+
+                                        "/"+ APList.get(0).getBSSID()+"/"+(-APList.get(0).getLevel()/APList.get(0).getCount())+
+                                        "/"+ APList.get(1).getBSSID()+"/"+(-APList.get(1).getLevel()/APList.get(1).getCount())+
+                                        "/"+ APList.get(2).getBSSID()+"/"+(-APList.get(2).getLevel()/APList.get(2).getCount())+
+                                        "/"+ APList.get(3).getBSSID()+"/"+(-APList.get(3).getLevel()/APList.get(3).getCount())+
+                                        "/"+ APList.get(4).getBSSID()+"/"+(-APList.get(4).getLevel()/APList.get(4).getCount()));
+                                switch (res){
+                                    case "0":
+                                        Looper.prepare();
+                                        Toast.makeText(MainActivity.this, "发送坐标"+x+","+y+"的数据成功",Toast.LENGTH_SHORT).show();
+                                        Looper.loop();
+                                        break;
+                                    case "-1":
+                                        Looper.prepare();
+                                        Toast.makeText(MainActivity.this, x+","+y+"数据重复",Toast.LENGTH_SHORT).show();
+                                        Looper.loop();
+                                        break;
+                                    default:
+                                }
+                            }
+
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            Looper.prepare();
+                            Toast.makeText(MainActivity.this, "发送失败", Toast.LENGTH_SHORT).show();
+                            Looper.loop();
+                        }
+                    }
+                }).start();
+                textView.setText("");
+                textView1.setText("");
+                APList.clear();
+                allAP.clear();
+                APs.clear();
+            }
+        });
     }
 
     private void ScanWifiInfo(){
@@ -111,10 +208,25 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         System.err.println("hasWifi "+scanResults.size());
+        int count = 0;
         for (ScanResult scanResult : scanResults) {
+            if(scanResult.SSID.equals("OPPO A95 5G"))continue;
+            System.err.println("count="+count);
             scanBuilder.append("\n设备名："+scanResult.SSID
                     +"\n设备位置："+scanResult.BSSID
                     +"\n信号强度："+scanResult.level+"\n");
+            if(APs.containsKey(scanResult.BSSID)){
+                System.err.println("有了有了");
+                APInfo info = APs.get(scanResult.BSSID);
+                info.setCount(info.getCount()+1);
+                info.setLevel(info.getLevel()+scanResult.level);
+                APs.replace(scanResult.BSSID,info);
+            }else{
+                System.err.println("还没有");
+                APs.put(scanResult.BSSID,new APInfo(scanResult.level,scanResult.BSSID,scanResult.SSID));
+            }
+            count++;
+            if(count >= 5)break;
         }
         textView.setText(scanBuilder);
         textView1.setText("hasWifi "+scanResults.size());
@@ -144,26 +256,26 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-//    public static String readParse(String urlPath) throws Exception {
-//        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
-//        byte[] data = new byte[1024];
-//        int len = 0;
-//        URL url = new URL(urlPath);
-//        System.err.println("connect ready");
-//        URLConnection urlCon = url.openConnection();
-//        urlCon.setDoOutput(false);
-//        urlCon.setDoInput(true);
-//        urlCon.setConnectTimeout(40000);
-//        urlCon.setReadTimeout(40000);
-//        urlCon.setUseCaches(false);
-//        System.err.println("connect success");
-//        InputStream inStream = urlCon.getInputStream();
-//        while ((len = inStream.read(data)) != -1) {
-//            outStream.write(data, 0, len);
-//        }
-//        System.err.println("read success");
-//        inStream.close();
-//        return new String(outStream.toByteArray());//通过out.Stream.toByteArray获取到写的数据
-//    }
+    public static String connectHttp(String urlPath) throws Exception {
+        ByteArrayOutputStream outStream = new ByteArrayOutputStream();
+        byte[] data = new byte[1024];
+        int len = 0;
+        url = new URL(urlPath);
+        System.err.println("connect ready");
+        urlCon = url.openConnection();
+        urlCon.setDoOutput(false);
+        urlCon.setDoInput(true);
+        urlCon.setConnectTimeout(40000);
+        urlCon.setReadTimeout(40000);
+        urlCon.setUseCaches(false);
+        InputStream inStream = urlCon.getInputStream();
+        System.err.println("connect success");
+        while ((len = inStream.read(data)) != -1) {
+            outStream.write(data, 0, len);
+        }
+        System.err.println("read success");
+        inStream.close();
+        return new String(outStream.toByteArray());//通过out.Stream.toByteArray获取到写的数据
+    }
 }
 

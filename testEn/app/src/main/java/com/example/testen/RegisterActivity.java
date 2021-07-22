@@ -1,6 +1,5 @@
 package com.example.testen;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
@@ -14,10 +13,7 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLDecoder;
@@ -32,7 +28,7 @@ public class RegisterActivity extends AppCompatActivity {
         setContentView(R.layout.activity_register);
 
         Button button0 = findViewById(R.id.button0);
-        Button button = findViewById(R.id.button);
+        Button button = findViewById(R.id.scanButton);
         Button button1 = findViewById(R.id.button1);
 
         EditText t1 = findViewById(R.id.userName);
